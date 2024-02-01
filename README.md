@@ -1,19 +1,27 @@
 <img src="/pics/Klessydra_Logo.png" width="400">
 
-# KLESSYDRA-fT13 PROCESSOR
+# KLESSYDRA-dfT03 PROCESSOR
 
-Intro: The Klessydra processing core family is a set of processors featuring full compliance with RISC-V, and pin-to-pin compatible with the PULPino Riscy cores. Klessydra-T13 is a bare-metal 32-bit processor fully supporting the RV32IM from the RISC-V ISA, and one instruction from the Atomic "A" extension. 'T1' further extends the instruction set with a set of custom vector instructions.
+Intro: The Klessydra processing core family is a set of processors featuring full compliance with RISC-V, and pin-to-pin compatible with the PULPino Riscy cores. Klessydra-T is a bare-metal 32-bit processor fully supporting the RV32IM from the RISC-V ISA, and one instruction from the Atomic "A" extension. 'T1' further extends the instruction set with a set of custom vector instructions.
 
-Architecture: fT13 is a Fault Tolerant Implementation of the Klesydra-T13x core, which uses IMT to achieve temporal and partially-spatial redundancy. fT13 is made from T13 core, an interleaved multithreaded processor (Aka, barrel processor) which interleaves three hardware threads (harts) each one with it's own registerfile, CSR-unit, and program counter. 
+Architecture: dfT03 is a Fault Tolerant Implementation of the Klesydra-T13x core, which uses IMT to achieve temporal and partially-spatial and temporal redundancy. dfT03 is made from the Buffered-TMR fT03 [1], an interleaved fault tolerant multithreaded processor (Aka, barrel processor) which interleaves three hardware threads (harts) each one with it's own registerfile, CSR-unit, and program counter with fault tolerant features, updated with the Morph paradigm where each hardware threads (harts) can be switched on or off one in case of wfi instructions.
 
-We have three different threads with the corresponding hardware support for maintaining their critical state signals, thus having a spatial redundancy, and we use them to execute the same code, each 
-instruction being interleaved with clock cycle granularity, thus having a temporal redundancy, so fT13 works like a single thread core.
+Since having triple redundancy is not always necessary is possible to get a DMR system starting from Klessydra-fT03 turning off one of the three threads and make the system work in Buffered DMR mode. Considering Klessydra-fT03 as the baseline processor, we use three hardware threads, numbered Thread 2, Thread 1, and Thread 0, and we leave only threads 2 and 1 active while turning off Thread 0, which we call the auxiliary thread, activating it only in case of fault detection. From these ideas born the Dynamic TMR principle, as we can dynamically add TMR redundancy only when a fault occurs, dynamically switching from DMR to TMR in the event of faults [2].
 
-Fencing role of the harts: The harts in our IMT archtiecture play an essential fencing role to avoid pipeline stalls. One role is to fence between registerfile RD & WR accesses, thus never having data-dependency pipeline stalls. The other is to fence between the execution and fetch stage, thus avoiding the need to perform any pipeline flushing. Once the number of harts become less then the required baseline required to create a fence, in that case the data dependency checker and the branch-predictor turn on in order to avoid execution hazards.
+<img src="/pics/Klessydra-dfT03_microarchitecture.png" width="600">
 
-The fT13 doesn't support the vector accelerator present in the T13 and S1 until now.
+Regarding the DMR and lock-step approaches, the core is better or comparable to that in literature in terms of resilience, hardware overhead and timing degradation. The proposed technique has an 98,6% in fault mitigation and only four cycles in roll-back overhead with no checkpointing redundancy.
 
-# Merging fT13 User Guide
+<img src="/pics/Klessydra-dfT03_FI_results.png" width="700">
+
+The dfT03 doesn't support the vector accelerator present in the fT13, T13 and S1 until now.
+
+-[1] [Design and Evaluation of Buffered Triple Modular Redundancy in Interleaved-Multi-Threading Processors](https://ieeexplore.ieee.org/abstract/document/9968000)
+
+-[2] [Evaluation of Dynamic Triple Modular Redundancy in an Interleaved-Multi-Threading RISC-V Core](https://www.mdpi.com/2079-9268/13/1/2)
+
+
+# Merging dfT03 User Guide
 
 This guide explains how one can download and install Pulpino, and it's 
 modified version of the riscv-gnu toolchain. It also demonstrates
@@ -75,9 +83,9 @@ PROCEDURE:
 
 5.	To merge the Klessydra core, and tests:
 
-		a) git clone https://github.com/klessydra/fT13x.git
+		a) git clone https://github.com/klessydra/dfT13x.git
 		
-		b) cd fT13
+		b) cd dfT13
 		
 		c) ./runMErge.sh <pulpino_path>
 
@@ -86,18 +94,18 @@ PROCEDURE:
 
 		a) e.g. mkdir build
 		
-		b) cp cmake_configure.klessydra-ft1-3th.gcc.sh build/
+		b) cp cmake_configure.klessydra-dft1-m.gcc.sh build/
 		
 		c) cd build
 		
-		d) ./cmake_configure.klessydra-ft1-3th.gcc.sh
+		d) ./cmake_configure.klessydra-dft1-m.gcc.sh
 		   (Execute the above script twice if you ever change the variable that changes the riscv-compiler, since changing the compiler flushes the values of the variables in the cmake cache and gives an error. Executing the script for a second time after changing the riscv-compiler will let the variables be redfined again)
 		   
 		e) make vcompile
 
 		For running Klessydra tests; the variable "USE_KLESSYDRA_TEST" in the above shell file is set to '1' by default. You only need to build and run your test
 		f) (e.g.  make vect_sum_single_funct_call_all_test_perf.vsimc)
-		General tests for all "Txx" versions of Klessydra are also available
+		General tests for all "fTxx" versions of Klessydra are also available
 		g) (e.g.  make barrier_test.vsimc)
 		
 		h) You can run one of the PULPino native tests,  (e.g. make testALU.vsimc)
@@ -109,7 +117,7 @@ Supplimentary Information:
 7.	In order to run tests in Modelsim, go to the build folder and do the following:
 		make nameofthetest.vsim (or .vsimc to run a test without modelsim GUI)
 
-8. Klessydra-fT13 libraries are available, and their function is described in the software runtime manual fuond in the Docs folder
+8. Klessydra-dfT03 libraries are available, and their function is described in the software runtime manual fuond in the Docs folder
 
 
 Hope you like it :D
