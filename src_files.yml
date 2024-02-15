@@ -1,0 +1,21 @@
+Klessydra-dft13:
+  incdirs: [
+    .,
+  ]
+  files: [
+    klessydra-ft13/PKG_RiscV_Klessydra.vhd,
+    klessydra-ft13/RTL-Accumulator.vhd,
+    klessydra-ft13/RTL-CSR_Unit.vhd,
+    klessydra-ft13/RTL-Debug_Unit.vhd,
+    klessydra-ft13/RTL-DSP_Unit.vhd,
+    klessydra-ft13/RTL-ID_STAGE.vhd,
+    klessydra-ft13/RTL-IE_STAGE.vhd,
+    klessydra-ft13/RTL-IF_STAGE.vhd,
+    klessydra-ft13/RTL-Load_Store_Unit.vhd,
+    klessydra-ft13/RTL-Processing_Pipeline.vhd,
+    klessydra-ft13/RTL-Program_Counter_unit.vhd,
+    klessydra-ft13/RTL-Registerfile.vhd,
+    klessydra-ft13/RTL-Scratchpad_Memory_Interface.vhd,
+    klessydra-ft13/RTL-Scratchpad_Memory.vhd,
+    klessydra-ft13/STR-Klessydra_Top.vhd,
+  ]
