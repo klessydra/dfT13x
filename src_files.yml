@@ -1,21 +1,21 @@
-Klessydra-dft13:
+Klessydra-dft1-m:
   incdirs: [
     .,
   ]
   files: [
-    klessydra-dft13/PKG_RiscV_Klessydra.vhd,
-    klessydra-dft13/RTL-Accumulator.vhd,
-    klessydra-dft13/RTL-CSR_Unit.vhd,
-    klessydra-dft13/RTL-Debug_Unit.vhd,
-    klessydra-dft13/RTL-DSP_Unit.vhd,
-    klessydra-dft13/RTL-ID_STAGE.vhd,
-    klessydra-dft13/RTL-IE_STAGE.vhd,
-    klessydra-dft13/RTL-IF_STAGE.vhd,
-    klessydra-dft13/RTL-Load_Store_Unit.vhd,
-    klessydra-dft13/RTL-Processing_Pipeline.vhd,
-    klessydra-dft13/RTL-Program_Counter_unit.vhd,
-    klessydra-dft13/RTL-Registerfile.vhd,
-    klessydra-dft13/RTL-Scratchpad_Memory_Interface.vhd,
-    klessydra-dft13/RTL-Scratchpad_Memory.vhd,
-    klessydra-dft13/STR-Klessydra_Top.vhd,
+    klessydra-dft1-m/PKG_RiscV_Klessydra.vhd,
+    klessydra-dft1-m/RTL-Accumulator.vhd,
+    klessydra-dft1-m/RTL-CSR_Unit.vhd,
+    klessydra-dft1-m/RTL-Debug_Unit.vhd,
+    klessydra-dft1-m/RTL-DSP_Unit.vhd,
+    klessydra-dft1-m/RTL-ID_STAGE.vhd,
+    klessydra-dft1-m/RTL-IE_STAGE.vhd,
+    klessydra-dft1-m/RTL-IF_STAGE.vhd,
+    klessydra-dft1-m/RTL-Load_Store_Unit.vhd,
+    klessydra-dft1-m/RTL-Processing_Pipeline.vhd,
+    klessydra-dft1-m/RTL-Program_Counter_unit.vhd,
+    klessydra-dft1-m/RTL-Registerfile.vhd,
+    klessydra-dft1-m/RTL-Scratchpad_Memory_Interface.vhd,
+    klessydra-dft1-m/RTL-Scratchpad_Memory.vhd,
+    klessydra-dft1-m/STR-Klessydra_Top.vhd,
   ]
