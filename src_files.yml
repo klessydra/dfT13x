@@ -17,5 +17,9 @@ Klessydra-dft1-m:
     klessydra-dft1-m/RTL-Registerfile.vhd,
     klessydra-dft1-m/RTL-Scratchpad_Memory_Interface.vhd,
     klessydra-dft1-m/RTL-Scratchpad_Memory.vhd,
+    klessydra-dft1-m/RTL-VCU_Unit.vhd,
+    klessydra-dft1-m/STR-Klessydra_Core.vhd,
     klessydra-dft1-m/STR-Klessydra_Top.vhd,
   ]
+  
+
