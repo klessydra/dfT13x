@@ -9,6 +9,8 @@
 --  setting of the generic variaabble chosen                                                                  --
 --  The scratchpad memory mapper also exists in this stage, which maps the address to the corresponding SPM   --
 --  This pipeline stage always takes one cycle latency                                                        --
+--  Contributors to the Klessydra Project: Abdallah Cheikh, Marcello Barbirotta, Mauro Olivieri.              --
+--  last update: 11-07-2024                                                                                   --
 ----------------------------------------------------------------------------------------------------------------
 
 -- ieee packages ------------
@@ -27,7 +29,8 @@ use work.riscv_klessydra.all;
 entity REGISTERFILE is
   generic(
     THREAD_POOL_SIZE           : natural;
-    LUTRAM_RF                  : natural;
+    lutram_rf                  : natural;
+    latch_rf                   : natural;
     morph_en                   : natural;
     fetch_stage_en             : natural;
     accl_en                    : natural;
@@ -131,6 +134,11 @@ architecture RF of REGISTERFILE is
 
   subtype harc_range is natural range THREAD_POOL_SIZE - 1 downto 0;
 
+  signal RF_res          : std_logic_vector(31 downto 0);
+  signal WB_EN_lat       : std_logic;
+  signal harc_LAT        : harc_range;
+  signal instr_word_LAT  : std_logic_vector(31 downto 0);
+
   signal regfile_lutram_rs1 : array_2d((THREAD_POOL_SIZE*RF_SIZE)-1 downto 0)(31 downto 0);
   signal regfile_lutram_rs2 : array_2d((THREAD_POOL_SIZE*RF_SIZE)-1 downto 0)(31 downto 0);
   signal regfile_lutram_rd  : array_2d((THREAD_POOL_SIZE*RF_SIZE)-1 downto 0)(31 downto 0);
@@ -155,9 +163,8 @@ architecture RF of REGISTERFILE is
   signal rs2_bypass   : std_logic;
   signal harc_WB_lat  : harc_range;
   signal fault_RF     : std_logic;  
-  signal RS1_Data_IE_buffer  : std_logic_vector(31 downto 0);
-  signal RS2_Data_IE_buffer  : std_logic_vector(31 downto 0);
   signal WB_done_PC             : std_logic_vector(31 downto 0);   
+
 
   --FAULT TOLERANT VOTER 
 --  signal parity1      : std_logic;
@@ -172,19 +179,6 @@ architecture RF of REGISTERFILE is
 
   -- shared signals
   signal harc_loss  : harc_range;
-
---  alias pc_IF_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.pc_IF : std_logic_vector(31 downto 0) >>;
---  alias instr_word_ID_lat_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.FETCH.instr_word_ID_lat : std_logic_vector(31 downto 0) >>;
---  alias dest_valid_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.DECODE.dest_valid : std_logic >>;
---  alias edge_fault_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.edge_fault : std_logic >>;
---  alias harc_EXEC_alias is << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.harc_EXEC : harc_range >>; 
---  alias harc_IF_alias is << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.harc_IF : harc_range >>; 
---  alias LS_is_running_lat_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.LSU.LS_is_running_lat : std_logic >>;
---  alias load_op_buf_lat_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.LSU.load_op_buf_lat : std_logic_vector(2 downto 0) >>;
---  alias load_op_buf_wire_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.LSU.load_op_buf_wire : std_logic_vector(2 downto 0) >>;
---  alias LS_is_running_wire_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.LSU.LS_is_running_wire : std_logic >>;
---  alias LS_is_running_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.LSU.LS_is_running : std_logic >>;
-
 
   attribute ram_style : string;
   attribute ram_style of RS1_Data_IE        : signal is "reg"; -- AAA i think these are unecessary and need to be removed
@@ -239,9 +233,39 @@ architecture RF of REGISTERFILE is
     return h;
   end function add_vect_bits;
 
-begin
 
-  RF_FF : if LUTRAM_RF = 0 generate
+begin
+ 
+
+  ------------------------------------------------------------
+  --  ██████╗ ███████╗ ██████╗ ███████╗██╗██╗     ███████╗  --
+  --  ██╔══██╗██╔════╝██╔════╝ ██╔════╝██║██║     ██╔════╝  --
+  --  ██████╔╝█████╗  ██║  ███╗█████╗  ██║██║     █████╗    --
+  --  ██╔══██╗██╔══╝  ██║   ██║██╔══╝  ██║██║     ██╔══╝    --
+  --  ██║  ██║███████╗╚██████╔╝██║     ██║███████╗███████╗  --
+  --  ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝╚══════╝  --
+  ------------------------------------------------------------
+
+
+  RF_FF : if lutram_rf = 0 generate
+
+  --not enabled for fault tolerance  
+  LATCH_REGFILE : if latch_rf = 1 generate
+
+  RF_WR_ACCESS : process(all)  -- synch single state process
+  begin
+      for h in harc_range loop
+        regfile(h)(0) <= (others => '0');       
+      end loop;
+      if WB_EN_lat = '1' then
+        regfile(harc_LAT)(rd(instr_word_LAT)) <= RF_res;
+      end if;
+  end process;
+
+  end generate; -- latch_rf = 1
+
+  -- enabled for fault tolerance  
+  FF_REGFILE : if latch_rf = 0 generate
 
   RF_ACCESS : process(clk_i, rst_ni, instr_word_ID)  -- synch single state process
   begin
@@ -255,20 +279,19 @@ begin
       RS2_Data_IE <= (others => '0');
       RD_Data_IE <= (others => '0');
       WB_fault <= '0';
+
+      WB_EN_lat <= '0';
+      harc_LAT <= THREAD_POOL_SIZE-1;
+      instr_word_LAT <= (others => '0');
+
     elsif rising_edge(clk_i) then
+      harc_LAT <= harc_WB;
+      instr_word_LAT <= instr_word_WB;
+      WB_EN_lat <= WB_EN;
 
       if core_busy_IE = '1' or core_busy_LS = '1' or ls_parallel_exec = '0'  or dsp_parallel_exec = '0' or LS_WB_wrong_EXEC = '1' or ( restore_fault_PC = '1' and harc_ID /= 0 ) then -- the instruction pipeline is halted
       elsif instr_rvalid_ID_int = '0' then -- wait for a valid instruction
       else  -- process the incoming instruction 
-
-        ------------------------------------------------------------
-        --  ██████╗ ███████╗ ██████╗ ███████╗██╗██╗     ███████╗  --
-        --  ██╔══██╗██╔════╝██╔════╝ ██╔════╝██║██║     ██╔════╝  --
-        --  ██████╔╝█████╗  ██║  ███╗█████╗  ██║██║     █████╗    --
-        --  ██╔══██╗██╔══╝  ██║   ██║██╔══╝  ██║██║     ██╔══╝    --
-        --  ██║  ██║███████╗╚██████╔╝██║     ██║███████╗███████╗  --
-        --  ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝╚══════╝  --
-        ------------------------------------------------------------
 
 --        data_addr_internal_IE <= std_logic_vector(signed(regfile(harc_ID)(rs1(instr_word_ID))) + signed(S_immediate(instr_word_ID)));
         ----- REGISTERFILE READ IS DONE HERE --------------------------------------------------------------------------------------------------------------
@@ -283,6 +306,7 @@ begin
           end if;
         end if;
 
+
         -- dft1m start --
         data_addr_internal_IE <= std_logic_vector(signed(regfile_voted_wire(rs1(instr_word_ID))) + signed(S_immediate(instr_word_ID)));
 
@@ -293,8 +317,11 @@ begin
         RD_Addr_IE  <= std_logic_vector(to_unsigned(rd(instr_word_ID), 5)); -- debugging signals
         -- pragma translate_on
         -- dft1m end --
+
        ----------------------------------------------------------------------------------------------------------------------------------------------------
       end if;  -- instr. conditions
+
+
 
       -- dft1m start --
       -- performs the RF write back from a voted value only in case of WB_EN (from buffers), in case of the address RD_WB different from zeroes, and when you are
@@ -313,12 +340,15 @@ begin
     end if;  -- clk
   end process;
 
+  end generate; -- latch_rf = 0
+
   -- dt1m start --
   -- regfile reading for the operands. Take the buffered result in case of bypass.
   RS1_Data_IE_wire <= regfile_voted_wire(rs1(instr_word_ID)) when morph_en = 0 or rs1_bypass_wire = '0'  else WB_RD_buf_wire(harc_ID); --or harc_ID /= harc_WB else WB_RD_buf_wire(harc_ID); 
   RS2_Data_IE_wire <= regfile_voted_wire(rs2(instr_word_ID)) when morph_en = 0 or rs2_bypass_wire = '0'  else WB_RD_buf_wire(harc_ID); --or harc_ID /= harc_WB else WB_RD_buf_wire(harc_ID);
   RD_Data_IE_wire  <= regfile_voted_wire(rd(instr_word_ID))  when morph_en = 0 or bypass_rd_read  = '0' else WB_RD_buf_wire(harc_ID); --or harc_ID /= harc_WB else WB_RD_buf_wire(harc_ID);
   -- dft1m end --
+
   end generate; -- LUTRAM_RF = 0
 
 
@@ -346,8 +376,8 @@ begin
         RS2_Data_IE_wire <= (others => '0');
       end if;
       if accl_en = 1 then
-        if rs1(instr_word_ID) /= 0 then
-          RD_Data_IE_wire <= regfile_lutram_rd(32*harc_ID+rd(instr_word_ID)) when morph_en = 0 or bypass_rd_read = '0' or harc_ID /= harc_WB else WB_RD; -- only the DSP unit reads the accelerator
+        if rd(instr_word_ID) /= 0 then
+          RD_Data_IE_wire <= regfile_lutram_rd(32*harc_ID+rd(instr_word_ID)) when bypass_rd_read = '0' or harc_ID /= harc_WB else WB_RD; -- only the DSP unit reads the accelerator
         else
           RD_Data_IE_wire <= (others => '0');
         end if;
@@ -363,6 +393,13 @@ begin
       else
         RS2_Data_IE_wire <= (others => '0');
       end if;
+      if accl_en = 1 then
+        if rd(instr_word_ID) /= 0 then
+          RD_Data_IE_wire <= regfile_lutram_rd(32*harc_ID+rd(instr_word_ID));
+        else
+          RD_Data_IE_wire <= (others => '0');
+        end if;
+      end if;
     end if;
 
   end process;
@@ -371,7 +408,9 @@ begin
   begin
     if rising_edge(clk_i) then
       if RD_EN = '1' then 
-        data_addr_internal_IE <= std_logic_vector(signed(regfile_lutram_rs1(32*harc_ID+rs1(instr_word_ID))) + signed(S_immediate(instr_word_ID)));
+        data_addr_internal_IE <= std_logic_vector(signed(regfile_lutram_rs1(32*harc_ID+rs1(instr_word_ID))) + signed(S_immediate(instr_word_ID)))
+                                when morph_en = 0 or bypass_rs1 = '0' or harc_ID /= harc_WB else 
+                                std_logic_vector(signed(WB_RD) + signed(S_immediate(instr_word_ID))); -- else bypass condition
         RS1_Data_IE <= RS1_Data_IE_wire;
       -- pragma translate_off
        RD_Data_IE  <= regfile_lutram_rs1(32*harc_ID+rd(instr_word_ID)); -- reading the 'rd' data here is only for debugging purposes when the acclerator is disabled
@@ -406,6 +445,12 @@ begin
         if RD_EN = '1' then
           RD_Data_IE <= RD_Data_IE_wire;
         end if;  -- instr. conditions
+      elsif accl_en = 0 then
+        if RD_EN = '1' then
+          -- pragma translate_off
+           RD_Data_IE  <= regfile_lutram_rd(32*harc_ID+rd(instr_word_ID)) when bypass_rd_read = '0' or harc_ID /= harc_WB else WB_RD; -- reading the 'rd' data here is only for debugging purposes when the acclerator is disabled
+          -- pragma translate_on
+        end if;  -- instr. conditions
       end if;
       if WB_EN = '1' then
         regfile_lutram_rd(32*harc_WB+rd(instr_word_WB)) <= WB_RD;
@@ -413,8 +458,7 @@ begin
     end if;  -- clk
   end process;
   end generate; -- accl_en = 1
-
-  end generate; -- LUTRAM_RF = 1
+  end generate; -- lutram_rf = 1
 
   RETURN_ADDR_REG : if fetch_stage_en = 1 generate
   RA_ACCESS : process(clk_i) begin
@@ -520,6 +564,8 @@ begin
 
 
 
+
+
   -- Always vote among the RFs so as to always have the right result on the wire which will always be read during operands reading
   for i in  RF_SIZE-1 downto 0  loop  
   --  regfile_voted_wire(i) <= ( regfile(2)(i) and regfile(1)(i) ) or ( regfile(2)(i) and regfile(0)(i) ) or ( regfile(1)(i) and regfile(0)(i) );  
@@ -530,6 +576,11 @@ begin
     end if;        
   end loop;  
 
+
+  -- Always vote among the RFs so as to always have the right result on the wire which will always be read during operands reading
+--  for i in  RF_SIZE-1 downto 0  loop  
+--    regfile_voted_wire(i) <= regfile(0)(i); 
+--  end loop;  
 
 
 
@@ -930,7 +981,7 @@ begin
   --  ╚═╝  ╚═╝╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝     ╚═════╝ ╚══════╝╚═╝  ╚═══╝  --
   -----------------------------------------------------------------------------------------------
 
-
+  -- Moved Back to LSU, maybe unuseful
   LSU_Address_Mapper_comb : process(clk_i, rst_ni)
   begin
     if rst_ni = '0' then

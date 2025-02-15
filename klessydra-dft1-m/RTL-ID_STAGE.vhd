@@ -7,11 +7,13 @@
 --  Does operation decoding, and issues the result in a one-hot decoding form to the next stage               --
 --  In this stage we detect based on the incoming instruction whether superscalar execution can be enabled.   --
 --  This pipeline stage always takes one cycle latency                                                        --
-----------------------------------------------------------------------------------------------------------------
+--  Contributors to the Klessydra Project: Abdallah Cheikh, Marcello Barbirotta, Mauro Olivieri.            --
+--  last update: 11-07-2024                                                                                 --
+--------------------------------------------------------------------------------------------------------------
 
 -- package riscv_kless is new work.riscv_klessydra;
 
--- ieee packages ------------f
+-- ieee packages ------------
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_misc.all;
@@ -233,6 +235,16 @@ architecture DECODE of ID_STAGE is
     end loop;
     return h;
   end function add_vect_bits;
+
+
+  function or_vect_bits(input_vector : std_logic_vector) return std_logic is
+    variable result : std_logic := '0';
+  begin
+    for i in input_vector'range loop
+      result := result or input_vector(i);
+    end loop;
+    return result;
+  end function or_vect_bits;
 
 
 begin
@@ -646,20 +658,28 @@ begin
               when CSRRWI =>
                 decoded_instruction_IE <= CSRRWI_pattern;
               when CSRRSI =>
-                if zero_rd_wire = '0' then
-                  decoded_instruction_IE <= CSRRSI_pattern;
-                else                    -- R0_INSTRUCTION
-                  decoded_instruction_IE <= NOP_pattern; -- AAA highly likely not to be a NOP
-                end if;
+                decoded_instruction_IE <= CSRRSI_pattern;
               when CSRRCI =>
-                if zero_rd_wire = '0' then
-                  decoded_instruction_IE <= CSRRCI_pattern;
-                else                    -- R0_INSTRUCTION
-                  decoded_instruction_IE <= NOP_pattern;
-                end if;
-              when others =>  -- ILLEGAL_INSTRUCTION                      
+                decoded_instruction_IE <= CSRRCI_pattern;
+              when others =>  -- ILLEGAL_INSTRUCTION
                 decoded_instruction_IE <= ILL_pattern;
             end case;  -- FUNCT3_wires cases
+
+--              when CSRRSI =>
+--                if zero_rd_wire = '0' then
+--                  decoded_instruction_IE <= CSRRSI_pattern;
+--                else                    -- R0_INSTRUCTION
+--                  decoded_instruction_IE <= NOP_pattern; -- AAA highly likely not to be a NOP
+--                end if;
+--              when CSRRCI =>
+--                if zero_rd_wire = '0' then
+--                  decoded_instruction_IE <= CSRRCI_pattern;
+--                else                    -- R0_INSTRUCTION
+--                  decoded_instruction_IE <= NOP_pattern;
+--                end if;
+--              when others =>  -- ILLEGAL_INSTRUCTION                      
+--                decoded_instruction_IE <= ILL_pattern;
+--            end case;  -- FUNCT3_wires cases
 
 --          when AMO =>
 --            data_width_ID <= "10";
@@ -1304,6 +1324,9 @@ end process;
     -- A data deoendency is only valid to make a stall when the current dependent instruction is not flushed 
     if ( core_busy_IE = '1' or core_busy_LS = '1' or ls_parallel_exec = '0'  or dsp_parallel_exec = '0'  or  branch_stall = '1' or jalr_stall = '1' or LS_WB_wrong_EXEC='1' or pippo_wire = '1')  then -- or (data_dependency = '1' and flush_hart_ID(harc_ID) = '0') then
 
+-- la parte di data dependency non inserita
+--    if core_busy_IE = '1' or core_busy_LS = '1' or ls_parallel_exec = '0'  or dsp_parallel_exec = '0'  or (data_dependency = '1' and flush_hart_ID(harc_ID) = '0') or branch_stall = '1' or jalr_stall = '1' then
+
 --      if restore_fault_PC = '1' and ( harc_IF /= 0 or harc_ID /= 0 or harc_EXEC /= 0 ) then
  --     if restore_fault_PC_wire = '1' and restore_fault_PC = '0'   and ( harc_IF /= 0 or harc_ID /= 0 or harc_EXEC /= 0 ) then
  --     else          
@@ -1321,10 +1344,13 @@ end process;
     OPCODE_wires      := OPCODE(instr_word_ID); 
     busy_ID           <= '0';
     ls_parallel_exec  <= '0' when busy_LS = '1' and instr_rvalid_ID_int = '1' else '1';
+--    dsp_parallel_exec <= '0' when or_vect_bits(busy_DSP) = '1' and instr_rvalid_ID_int = '1' else '1';
     dsp_parallel_exec <= '0' when unsigned(busy_DSP) /= 0 and instr_rvalid_ID_int = '1' else '1';
     dsp_to_jump_wire  <= '1' when OPCODE_wires = KDSP and busy_DSP(harc_ID_to_DSP) = '1' else '0';
     -- A data deoendency is only valid to make a stall when the current dependent instruction is not flushed
     if ( core_busy_IE = '1' or core_busy_LS = '1' or ls_parallel_exec = '0'  or dsp_parallel_exec = '0'  or branch_stall = '1' or jalr_stall = '1' or LS_WB_wrong_EXEC ='1' or pippo_wire = '1' )  then -- or (data_dependency = '1' and flush_hart_ID(harc_ID) = '0') then
+-- la parte di data dependency non inserita
+--    if core_busy_IE = '1' or core_busy_LS = '1' or ls_parallel_exec = '0'  or dsp_parallel_exec = '0' or (data_dependency = '1' and flush_hart_ID(harc_ID) = '0') or branch_stall = '1' or jalr_stall = '1' then
 
 --      if restore_fault_PC = '1' and ( harc_IF /= 0 or harc_ID /= 0 or harc_EXEC /= 0 ) then
 --      if restore_fault_PC_wire = '1' and restore_fault_PC = '0'  and ( harc_IF /= 0 or harc_ID /= 0 or harc_EXEC /= 0 )  then
@@ -1336,19 +1362,26 @@ end process;
   end process;
   end generate;
 
-  process(all)
-  begin
-    dsp_instr_req_wire <= (others => '0');
-    if instr_rvalid_ID_int = '1' and busy_ID = '0' then
-      if OPCODE(instr_word_ID) = KDSP then
-        if dsp_to_jump_wire = '0' then
-          if flush_hart_ID(harc_ID) = '0' then
-            dsp_instr_req_wire(harc_ID_to_DSP) <=  '1';
-          end if;
-        end if;
-      end if;
-    end if;
-  end process; --------------------------------------------------------------------------------
+
+  dsp_instr_req_wire <= (others => '0') when not (instr_rvalid_ID_int = '1'     and 
+                                                  busy_ID = '0'                 and 
+                                                  OPCODE(instr_word_ID) = KDSP  and 
+                                                  dsp_to_jump_wire = '0'        and 
+                                                  flush_hart_ID(harc_ID) = '0') else (harc_ID_to_DSP => '1', others => '0');
+
+  --process(all)
+  --begin
+  --  dsp_instr_req_wire <= (others => '0');
+  --  if instr_rvalid_ID_int = '1' and busy_ID = '0' then
+  --    if OPCODE(instr_word_ID) = KDSP then
+  --      if dsp_to_jump_wire = '0' then
+  --        if flush_hart_ID(harc_ID) = '0' then
+  --          dsp_instr_req_wire(harc_ID_to_DSP) <=  '1';
+  --        end if;
+  --      end if;
+  --    end if;
+  --  end if;
+  --end process; --------------------------------------------------------------------------------
 
   process(clk_i, rst_ni)
   begin
