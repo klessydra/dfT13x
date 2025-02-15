@@ -9,6 +9,8 @@
 --  The multipliers are a up to a three cycle latency instructions, while the dividers are up to 32 cycles  --
 --  and drives the control signals for accessing data memory and stalling the pipeline if needed            --
 --  fsm_IE may invoke separate units for handling specific instructions (exceptions, csrs)                  --
+--  Contributors to the Klessydra Project: Abdallah Cheikh, Marcello Barbirotta, Mauro Olivieri.            --
+--  last update: 11-07-2024                                                                                 --
 --------------------------------------------------------------------------------------------------------------
 
 -- ieee packages ------------
@@ -25,12 +27,16 @@ use work.riscv_klessydra.all;
 -- pipeline  pinout --------------------
 entity IE_STAGE is
   generic(
+    THREAD_POOL_SIZE_GLOBAL   : natural;
     THREAD_POOL_SIZE          : natural;
+    context_switch            : natural;
     morph_en                  : natural;
     fetch_stage_en            : natural;
     branch_predict_en         : natural;
     RV32M                     : natural;
+    HET_CLUSTER_S1_CORE       : natural;
     TPS_CEIL                  : natural;
+    --TPS_GLBL_CEIL           : natural;
     RF_CEIL                   : natural
   );
   port (
@@ -38,6 +44,11 @@ entity IE_STAGE is
     clk_i, rst_ni             : in  std_logic;
     instr_gnt_i               : in  std_logic;
     irq_i                     : in  std_logic;
+    source_hartid_o           : out natural range THREAD_POOL_SIZE_GLOBAL-1 downto 0;
+    sw_irq                    : out std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
+    sw_irq_served_i           : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    sw_irq_served_o           : out std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
+    sw_irq_pending            : out std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
     RS1_Data_IE               : in  std_logic_vector(31 downto 0);
     RS2_Data_IE               : in  std_logic_vector(31 downto 0);
     irq_pending               : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
@@ -66,7 +77,9 @@ entity IE_STAGE is
     pass_BGE                  : in  std_logic;
     pass_BGEU                 : in  std_logic;
     ie_instr_req              : in  std_logic;
+    MHARTID                   : in  array_2d(THREAD_POOL_SIZE-1 downto 0)(9  downto 0);
     MSTATUS                   : in  array_2D(THREAD_POOL_SIZE-1 downto 0)(1 downto 0);
+    MPIP                      : in  array_2d(THREAD_POOL_SIZE-1 downto 0)(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
     harc_EXEC                 : in  integer range THREAD_POOL_SIZE-1 downto 0;
     instr_rvalid_IE           : in  std_logic;  -- validity bit at IE input
     WB_EN_next_ID             : in  std_logic;
@@ -75,13 +88,16 @@ entity IE_STAGE is
     decoded_instruction_IE    : in  std_logic_vector(EXEC_UNIT_INSTR_SET_SIZE-1 downto 0);
     harc_sleep_wire           : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     harc_sleep                : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    wfi_hart_wire             : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    core_enable_i             : in  std_logic;
     CORE_STATE                : in  std_logic_vector(THREAD_POOL_BASELINE downto 0);
     CORE_STATE_ID             : in  std_logic_vector(THREAD_POOL_BASELINE downto 0);
+    IMT_ACTIVE_HARTS          : in  natural;
     csr_addr_i                : out std_logic_vector(11 downto 0);
     ie_except_data            : out std_logic_vector(31 downto 0);
     ie_csr_wdata_i            : out std_logic_vector(31 downto 0);
     csr_op_i                  : out std_logic_vector(2 downto 0);
-    harc_to_csr               : out natural range THREAD_POOL_SIZE-1 downto 0;
+    harc_to_csr               : out natural range THREAD_POOL_SIZE_GLOBAL-1 downto 0;
     csr_instr_req             : out std_logic;
     core_busy_IE              : out std_logic;
     jump_instr                : out std_logic;
@@ -98,6 +114,7 @@ entity IE_STAGE is
     PC_offset                 : out std_logic_vector(31 downto 0);
     absolute_address          : out std_logic_vector(31 downto 0);
     served_irq                : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    served_pending_irq        : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     ebreak_instr              : out std_logic;
     absolute_jump             : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     instr_rvalid_WB           : out std_logic;
@@ -127,6 +144,21 @@ end entity;  ------------------------------------------
 architecture EXECUTE of IE_STAGE is
 
   subtype harc_range is natural range THREAD_POOL_SIZE - 1 downto 0;
+
+  signal single_active_hart         : natural;
+  signal IMT_ACTIVE_HARTS_lat       : natural;
+
+  signal sw_irq_int                 : std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
+  signal sw_irq_en                  : std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0);
+  signal sw_irq_count               : std_logic; -- one bit counter
+
+  signal T13_switch                 : std_logic;
+  signal T13_switch_routine         : std_logic_vector(harc_range);
+  signal S1_switch                  : std_logic;
+  signal S1_switch_routine          : std_logic; -- AAA maybe make this into a arc_range just like T13_switch_routine for consistancyf
+  signal S1_switch_en               : std_logic;
+
+
 
   signal instr_rvalid_IE_int        : std_logic;
   signal core_busy_IE_lat           : std_logic;
@@ -228,7 +260,24 @@ architecture EXECUTE of IE_STAGE is
 
 begin
 
-  instr_rvalid_IE_int <= instr_rvalid_IE or core_busy_IE_lat;
+
+  T13_switch <= '1'                                     when
+                context_switch                =  1      and
+                THREAD_POOL_SIZE              =  3      and
+                IMT_ACTIVE_HARTS_lat          =  1      and
+                harc_EXEC                     = single_active_hart and
+                T13_switch_routine(harc_EXEC) = '0'     else
+                '0';
+
+  S1_switch <= '1'                      when
+               S1_switch_en        = '1' and
+               S1_switch_routine   = '0' else
+               '0';
+
+  sw_irq  <= sw_irq_int and sw_irq_en;
+
+  instr_rvalid_IE_int <= (instr_rvalid_IE or core_busy_IE_lat); -- AAA in case of non-hetergenous cluster, maybe a dual core for example, the core_enable_i should not flush the IE istruction.
+
 
   ----------------------------------------------------------
   --  ██╗███████╗    ███████╗██╗   ██╗███╗   ██╗ ██████╗  --
@@ -248,14 +297,22 @@ begin
       --instruction_counter    <= std_logic_vector(to_unsigned(0, 64));
       core_busy_IE_lat       <= '0';
       WB_EN_next_IE          <= '0';
+      S1_switch_routine      <= '0';
+      S1_switch_en           <= '0';
+      sw_irq_count           <= '0';
+      T13_switch_routine     <= (others => '0');
       halt_update_IE         <= (others => '0');
       halt_update_IE_pending <= (others => '0');
       served_thread          <= '0';
 
     elsif rising_edge(clk_i) then
+      if THREAD_POOL_SIZE /= 1 then
+        S1_switch_routine <= '0';
+      end if;
       IE_WB_EN         <= '0';
       MUL_WB_EN        <= '0';
       WB_EN_next_IE    <= '0';
+      S1_switch_en     <= '0';
       core_busy_IE_lat <= core_busy_IE;
 
       -- Branch miss handling ---------------------------------------------
@@ -291,6 +348,19 @@ begin
           elsif irq_pending(harc_EXEC) = '1' and harc_EXEC /= (THREAD_POOL_SIZE-1) and served_thread = '1' then 
             IE_WB_EN         <= '0';
             MUL_WB_EN        <= '0';
+
+            -- manage irq as an absolute branch to MTVEC, also defining mepc value properly in program counter unit
+            -- irq is served only if we are not in a delay slot for the interrupted harc
+            -- for simplicity presently only harc 0 is interrupted (decided in program counter unit)
+            -- the current valid instruction is discarded, only its pc value gets used for mepc
+          elsif T13_switch = '1'  or S1_switch = '1' then
+            if THREAD_POOL_SIZE > 1 then
+              T13_switch_routine(harc_EXEC) <= '1';
+            end if;
+            if THREAD_POOL_SIZE = 1 then
+              S1_switch_routine  <= '1';
+            end if;
+            ie_except_data     <= CTX_SWITCH_CODE;
 
           else
             IE_WB_EN            <= IE_WB_EN_wire;
@@ -388,6 +458,19 @@ begin
             end if;
             -----------------------------------------------------------
 
+            if decoded_instruction_IE(SW_MIP_bit_position) = '1' then
+              if HET_CLUSTER_S1_CORE = 1 then -- if the current core is the S1 core in the Het. cluster
+                for i in 0 to THREAD_POOL_SIZE_GLOBAL-2 loop -- loop throughout the harts of the T13 core
+                  if sw_irq_int(i) = '1' then
+                    sw_irq_count <= sw_irq_count xor '1'; -- does a 1-bit addition, also can be done with an XOR when one input is a constant
+                    if sw_irq_count = '0' then
+                      S1_switch_en <= '1'; -- enables going to the context switching routine
+                    end if; 
+                  end if;
+                end loop;
+              end if;
+            end if;
+
             --------------------- CSR OPS ---------------------------
             if decoded_instruction_IE(CSRRC_bit_position)  = '1' or 
                decoded_instruction_IE(CSRRS_bit_position)  = '1' or 
@@ -401,6 +484,18 @@ begin
             end if;
 
             -------------------------------------------------------
+            if decoded_instruction_IE(ECALL_bit_position) = '1' then
+              ie_except_data <= ECALL_EXCEPT_CODE;
+            end if;
+
+            if decoded_instruction_IE(MRET_bit_position) = '1' then
+              if THREAD_POOL_SIZE > 1 then
+                T13_switch_routine(harc_EXEC) <= '0';
+              end if;
+              if THREAD_POOL_SIZE = 1 then
+                S1_switch_routine  <= '0';
+              end if;
+            end if;
 
             if decoded_instruction_IE(ILL_bit_position) = '1' then
               ie_except_data                       <= ILLEGAL_INSN_EXCEPT_CODE;
@@ -510,7 +605,8 @@ begin
           end if;  -- instr_rvalid_IE values
           
         when csr_instr_wait_state =>
-          if (csr_instr_done = '1' and csr_access_denied_o = '0') then
+          if csr_instr_done = '0' then
+  --        if (csr_instr_done = '1' and csr_access_denied_o = '0') then
             if zero_rd = '0' then
               IE_WB_EN <= IE_WB_EN_wire;
               IE_WB <= csr_rdata_o;
@@ -561,10 +657,14 @@ begin
     Immediate                        <= B_immediate(instr_word_IE);
     PC_offset                        <= std_logic_vector(signed(pc_IE) + signed(Immediate));
     served_irq_wires                 := (others => '0');
+    served_pending_irq               <= (others => '0');
     absolute_address_int             <= std_logic_vector(signed(RS1_Data_IE) + signed(I_immediate(instr_word_IE)));
     absolute_address                 <= absolute_address_int(31 downto 1) & '0'; -- set LSB to '0'
     nextstate_IE_wires               := normal;
     harc_to_csr                      <= harc_EXEC;
+    sw_irq_pending                   <= (others => '0');
+    sw_irq_en                        <= (others => '1'); -- always enabled by default
+    sw_irq_int                       <= (others => '0');
     absolute_jump_wires              := (others => '0');
     core_busy_IE_wires               := '0';
     IE_except_condition_wires        := '0';
@@ -585,6 +685,7 @@ begin
     --branch prediction signals
     halt_update_IE_wire              <= halt_update_IE_pending and not instr_gnt_i; -- latch the halt wire as long as we don't have a valid instr
     branch_taken                     <= '0';
+    source_hartid_o                  <= to_integer(unsigned(MHARTID(harc_EXEC)(THREAD_POOL_SIZE_GLOBAL-1 downto 0))); -- AAA change the to TPS_CEIL or TPS_GLBL_CEIL
 
     if RV32M = 1 then
       MUL_WB_EN_wire                 <= WB_EN_next_ID and decoded_instruction_IE(MUL_bit_position) and not served_irq_wires(harc_EXEC);
@@ -686,6 +787,15 @@ begin
           if decoded_instruction_IE(WFI_bit_position) = '1' then -- Inform the CSR unit that the last instruction before we went to the subroutine was a WFI instruction.
             WFI_Instr_wires := '1';
           end if;
+        elsif (T13_switch = '1' and harc_EXEC = single_active_hart) or S1_switch = '1' then
+          flush_hart_int_wire(harc_EXEC) <= '1';
+          ie_taken_branch_wires          := '1';
+          IE_except_condition_wires      := '1';
+          if fetch_stage_en = 1 then
+            if CORE_STATE_ID(DUAL_HART_MODE) = '1' then
+              halt_update_IE_wire(harc_EXEC) <= '1';  -- AAA find a cleaner way to do this when having two threads and a fetch stage
+            end if;
+          end if;
         else                         -- process the instruction
 
         -- EXECUTE OF INSTRUCTION ---------------------
@@ -760,25 +870,67 @@ begin
             end if;
           end if;
 
+-- old version dft1m
+--          if decoded_instruction_IE(SW_MIP_bit_position) = '1' then
+--            if data_addr_internal_IE(31 downto 8) = x"0000FF" and halt_IE = '0' then
+--              core_busy_IE_wires := '1';
+--              nextstate_IE_wires := csr_instr_wait_state;
+--            end if;
+--            if data_addr_internal_IE(31 downto 8) = x"0000FF" then
+--              csr_op_i <= CSRRW;
+--              if halt_IE = '0' then
+--                csr_instr_req  <= '1';
+--                ie_csr_wdata_i <= RS2_Data_IE;
+--                csr_addr_i     <= MIP_ADDR;
+--                for i in harc_range loop
+--                  if data_addr_internal_IE(7 downto 0) = std_logic_vector(to_unsigned((4*i),8)) then
+--                    harc_to_csr <= i;
+--                  end if;
+--                end loop;
+--              end if;
+--            end if;
+--          end if;
+
           if decoded_instruction_IE(SW_MIP_bit_position) = '1' then
-            if data_addr_internal_IE(31 downto 8) = x"0000FF" and halt_IE = '0' then
-              core_busy_IE_wires := '1';
-              nextstate_IE_wires := csr_instr_wait_state;
-            end if;
-            if data_addr_internal_IE(31 downto 8) = x"0000FF" then
-              csr_op_i <= CSRRW;
+            --if data_addr_internal_IE(31 downto 8) = x"0000FF" and halt_IE = '0' then
+            --  core_busy_IE_wires := '1';
+            --  nextstate_IE_wires := csr_instr_wait_state;
+            --end if;
+            --csr_instr_req  <= '1';
+            --ie_csr_wdata_i <= RS2_Data_IE;
+            --csr_addr_i     <= MIP_ADDR;
+            --source_hartid_o <= harc_EXEC;
+            --csr_op_i <= CSRRW; 0x0000FF00
+            if data_addr_internal_IE(31 downto 9) = x"0000F" & "111" then
               if halt_IE = '0' then
-                csr_instr_req  <= '1';
-                ie_csr_wdata_i <= RS2_Data_IE;
-                csr_addr_i     <= MIP_ADDR;
-                for i in harc_range loop
-                  if data_addr_internal_IE(7 downto 0) = std_logic_vector(to_unsigned((4*i),8)) then
-                    harc_to_csr <= i;
-                  end if;
-                end loop;
+                if HET_CLUSTER_S1_CORE = 1 then -- if the current core is the S1 core in the Het. cluster
+                  for i in 0 to THREAD_POOL_SIZE_GLOBAL-2 loop -- loop throughout the harts of the T13 core
+                    if sw_irq_int(i) = '1' then
+                      if sw_irq_count = '0' then
+                        sw_irq_pending(i) <= '1'; -- pend the software interrupt, this hartID will be saved in MPIP register
+                        sw_irq_en(i)      <= '0'; -- do not enable the sw_irq as we need to go to the context switching routine first
+                      else
+                        if data_addr_internal_IE(8) = '0' then -- send single sw interrupt
+                          served_pending_irq(harc_EXEC) <= '1';
+                        end if; 
+                      end if; 
+                    end if;
+                  end loop;
+                end if;
+                if data_addr_internal_IE(8) = '1' then -- send single sw interrupt
+                  for i in 0 to THREAD_POOL_SIZE_GLOBAL-1 loop
+                    if data_addr_internal_IE(7 downto 0) = std_logic_vector(to_unsigned((4*i),8)) then
+                      --harc_to_csr <= i;
+                      sw_irq_int(i) <= '1'; -- send a single interrupt
+                    end if;
+                  end loop;
+                else  -- send multiple "pending" software interrupts
+                  sw_irq_int <= MPIP(harc_EXEC); -- send all the pending interrupts
+                end if;
               end if;
             end if;
           end if;
+
 
           if decoded_instruction_IE(CSRRW_bit_position) = '1' or decoded_instruction_IE(CSRRWI_bit_position) = '1' or
              decoded_instruction_IE(CSRRC_bit_position) = '1' or decoded_instruction_IE(CSRRCI_bit_position) = '1' or
@@ -996,6 +1148,16 @@ begin
       branch_instr_lat       <= branch_instr;
       jump_instr_lat         <= jump_instr;
       state_IE               <= nextstate_IE;
+      IMT_ACTIVE_HARTS_lat   <= IMT_ACTIVE_HARTS;
+      if IMT_ACTIVE_HARTS = 1 then
+        for i in harc_range loop
+          if wfi_hart_wire(i) = '0' then
+            single_active_hart <= i; -- register the number of the single active hart
+          end if;
+        end loop;
+      else
+        single_active_hart <= THREAD_POOL_SIZE; -- means that there are more than one acrive hart 
+      end if;
       if instr_gnt_i = '0' then
         if flush_hart_int_wire(harc_EXEC) = '1' then
           flush_hart_pending <= flush_hart_int_wire;

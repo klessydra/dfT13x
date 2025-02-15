@@ -7,6 +7,8 @@
 --  The LSU performs all the operations that access the external memories. Including the amoswap, and the   --
 --  custom burst load and store instructions. The LSU can allow superscalar execution with other execution  --
 --  units if a store operation is executing, Loaded instructions write either to the regfile or the SPMs    --
+--  Contributors to the Klessydra Project: Abdallah Cheikh, Marcello Barbirotta, Mauro Olivieri.            --
+--  last update: 11-07-2024                                                                                 --
 --------------------------------------------------------------------------------------------------------------
 
 -- ieee packages ------------
@@ -126,23 +128,20 @@ entity Load_Store_Unit is
     data_rdata_i               : in  std_logic_vector(31 downto 0);
     data_err_i                 : in  std_logic
 	);
+--attribute dont_touch : string;
+--attribute dont_touch of Load_Store_Unit : entity is "true|yes";
 end entity;  ------------------------------------------
 
 architecture LSU of Load_Store_Unit is
+--attribute keep_hierarchy  : string;
+--attribute keep_hierarchy  of LSU : architecture is "yes";
+
+
 
   subtype harc_range is natural range THREAD_POOL_SIZE-1 downto 0;
   subtype accl_range is integer range ACCL_NUM-1 downto 0; 
 
   --dTMR signals
---  alias parallel_exec_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Pipe.ls_parallel_exec  : std_logic >>;
---  alias fault_PC_lat_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.fault_PC_lat : std_logic >>;
---  alias harc_fault_wire_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.harc_fault_wire  : std_logic_vector (2 downto 0) >>;
---  alias harc_fault_wire_lat_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.harc_fault_wire_lat  : std_logic_vector (1 downto 0) >>;
---  alias harc_loss_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.harc_loss  : integer >>;
---  alias fault_harc_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.Prg_Ctr.fault_harc  : std_logic >>;      
-
---  alias harc_ID_alias is  << signal .tb.top_i.core_region_i.CORE.RISCV_CORE.harc_ID : harc_range >>;
-
 --  signal  load_op_buf_wire           :      std_logic_vector(2 downto 0);   
 --  signal  load_op_buf_lat            :      std_logic_vector(2 downto 0);   
 --  signal  LS_is_running_wire         :      std_logic;
@@ -172,9 +171,6 @@ architecture LSU of Load_Store_Unit is
   signal data_req_o_voted                  : std_logic;
   signal data_be_internal_voted_wire       : std_logic_vector(3 downto 0); 
   signal data_be_internal_voted            : std_logic_vector(3 downto 0); 
-
-  signal pippo_wire : std_logic;
---  signal pippo : std_logic;
 
 
 --  signal LS_peripheral_counter        : integer;
@@ -229,7 +225,7 @@ architecture LSU of Load_Store_Unit is
   signal busy_LS_lat                : std_logic;
   signal sc_word_count              : integer;
   signal harc_LS                    : accl_range;
-  signal harc_LOAD                  : harc_range;
+--  signal harc_LOAD                  : harc_range;
   signal ls_rs1_to_sc               : std_logic_vector(SPM_ADDR_WID-1 downto 0);
   signal ls_rd_to_sc                : std_logic_vector(SPM_ADDR_WID-1 downto 0);
   signal ls_sc_data_write           : std_logic_vector(Data_Width-1 downto 0);
@@ -247,6 +243,88 @@ architecture LSU of Load_Store_Unit is
 
   signal flush_hart_int_wire        : std_logic_vector(harc_range);
   signal flush_hart_int             : std_logic_vector(harc_range);
+
+
+
+
+--  attribute dont_touch of LS_is_running_lat     : signal is "true"                 ;
+--  attribute dont_touch of ls_instr_req_buf_wire     : signal is "true"             ;
+--  attribute dont_touch of ls_instr_req_buf     : signal is "true"                  ;
+--  attribute dont_touch of data_addr_internal_buf_wire     : signal is "true"       ;
+--  attribute dont_touch of data_addr_internal_buf     : signal is "true"            ;
+--  attribute dont_touch of data_wdata_o_buf_wire     : signal is "true"             ;
+--  attribute dont_touch of data_wdata_o_buf     : signal is "true"                  ;
+--  attribute dont_touch of data_we_o_buf_wire     : signal is "true"                ;
+--  attribute dont_touch of data_we_o_buf     : signal is "true"                     ;
+--  attribute dont_touch of data_req_o_buf_wire     : signal is "true"               ;
+--  attribute dont_touch of data_req_o_buf     : signal is "true"                    ;
+--  attribute dont_touch of data_be_internal_buf_wire     : signal is "true"         ;
+--  attribute dont_touch of data_be_internal_buf     : signal is "true"              ;
+--  attribute dont_touch of data_addr_internal_voted     : signal is "true"          ;
+--  attribute dont_touch of data_addr_internal_voted_wire     : signal is "true"     ;
+--  attribute dont_touch of data_wdata_o_voted_wire     : signal is "true"           ;
+--  attribute dont_touch of data_wdata_o_voted     : signal is "true"                ;
+--  attribute dont_touch of data_we_o_voted_wire     : signal is "true"              ;
+--  attribute dont_touch of data_we_o_voted     : signal is "true"                   ;
+--  attribute dont_touch of data_req_o_voted_wire     : signal is "true"             ;
+--  attribute dont_touch of data_req_o_voted     : signal is "true"                  ;
+--  attribute dont_touch of data_be_internal_voted_wire     : signal is "true"       ;
+--  attribute dont_touch of data_be_internal_voted     : signal is "true"            ;
+--  attribute dont_touch of store_op_buf_wire     : signal is "true"                 ;
+--  attribute dont_touch of store_op_buf     : signal is "true"                      ;
+--  attribute dont_touch of store_valid     : signal is "true"                       ;
+--  attribute dont_touch of load_op_buf     : signal is "true"                       ;
+--  attribute dont_touch of harc_loss     : signal is "true"                         ;
+--  attribute dont_touch of load_valid     : signal is "true"                        ;
+--  attribute dont_touch of data_width_ID_buf_wire     : signal is "true"            ;
+--  attribute dont_touch of data_width_ID_buf     : signal is "true"                 ;
+--  attribute dont_touch of data_width_ID_voted_wire     : signal is "true"          ;
+--  attribute dont_touch of data_width_ID_voted     : signal is "true"               ;
+--  attribute dont_touch of decoded_instruction_LS_buf_wire     : signal is "true"   ;
+--  attribute dont_touch of decoded_instruction_LS_buf     : signal is "true"        ;
+--  attribute dont_touch of decoded_instruction_LS_voted_wire     : signal is "true" ;
+--  attribute dont_touch of decoded_instruction_LS_voted     : signal is "true"      ;
+--  attribute dont_touch of bits_decoded_LS_fault     : signal is "true"             ;
+--  attribute dont_touch of data_rvalid_i_lat     : signal is "true"                 ;
+--  attribute dont_touch of data_addr_internal_wires     : signal is "true"          ;
+--  attribute dont_touch of data_wdata_o_wires     : signal is "true"                ;
+--  attribute dont_touch of data_be_internal_wires     : signal is "true"            ;
+--  attribute dont_touch of data_we_o_wires     : signal is "true"                   ;
+--  attribute dont_touch of data_req_o_wires     : signal is "true"                  ;
+--  attribute dont_touch of ls_except_condition_wires     : signal is "true"         ;
+--  attribute dont_touch of ls_taken_branch_wires     : signal is "true"             ;
+--  attribute dont_touch of core_busy_LS_wires     : signal is "true"                ;
+--  attribute dont_touch of busy_LS_wires     : signal is "true"                     ;
+--  attribute dont_touch of ls_except_condition_internal     : signal is "true"      ;
+--  attribute dont_touch of ls_taken_branch_internal     : signal is "true"          ;
+--  attribute dont_touch of core_busy_LS_internal     : signal is "true"             ;
+--  attribute dont_touch of busy_LS_internal     : signal is "true"                  ;
+--  attribute dont_touch of nextstate_LS     : signal is "true"                      ;
+--  attribute dont_touch of data_addr_internal_lat     : signal is "true"            ;
+--  attribute dont_touch of load_err     : signal is "true"                          ;
+--  attribute dont_touch of store_err     : signal is "true"                         ;
+--  attribute dont_touch of amo_store_lat     : signal is "true"                     ;
+--  attribute dont_touch of overflow_rs1_sc     : signal is "true"                   ;
+--  attribute dont_touch of overflow_rd_sc     : signal is "true"                    ;
+--  attribute dont_touch of busy_LS_lat     : signal is "true"                       ;
+--  attribute dont_touch of sc_word_count     : signal is "true"                     ;
+--  attribute dont_touch of harc_LS     : signal is "true"                           ;
+----  attribute dont_touch of harc_LOAD     : signal is "true"                         ;
+--  attribute dont_touch of ls_rs1_to_sc     : signal is "true"                      ;
+--  attribute dont_touch of ls_rd_to_sc     : signal is "true"                       ;
+--  attribute dont_touch of ls_sc_data_write     : signal is "true"                  ;
+--  attribute dont_touch of data_be_internal     : signal is "true"                  ;
+--  attribute dont_touch of RS1_Data_IE_wire_lat     : signal is "true"              ;
+--  attribute dont_touch of RS2_Data_IE_wire_lat     : signal is "true"              ;
+--  attribute dont_touch of RD_Data_IE_wire_lat     : signal is "true"               ;
+--  attribute dont_touch of RS1_Data_IE_lat     : signal is "true"                   ;
+--  attribute dont_touch of RS2_Data_IE_lat     : signal is "true"                   ;
+--  attribute dont_touch of RD_Data_IE_lat     : signal is "true"                    ;
+--  attribute dont_touch of add_op_A     : signal is "true"                          ;
+--  attribute dont_touch of add_op_B     : signal is "true"                          ;
+--  attribute dont_touch of add_out     : signal is "true"                           ;
+--  attribute dont_touch of flush_hart_int_wire     : signal is "true"               ;
+--  attribute dont_touch of flush_hart_int     : signal is "true"                    ;
 
 
   -- This function increments all the bits in a std_logic_vector
@@ -396,7 +474,8 @@ begin
                  decoded_instruction_LS(KBCASTLD_bit_position) = '1' then
                 overflow_rd_sc <= add_out(Addr_Width downto 0); -- If storing data to SC overflows it's address space
                 -- Illegal byte transfer handler, and illegal writeback address handler
-                if rd_to_sc = "100" then --  AAA change "100" to make it parametrizable -- Not a scratchpad destination address
+                if unsigned(rd_to_sc) = SPM_NUM then  -- Not a scratchpad destination address
+--                if rd_to_sc = "100" then --  AAA change "100" to make it parametrizable -- Not a scratchpad destination address
                   ls_except_data              <= ILLEGAL_ADDRESS_EXCEPT_CODE;
                 elsif RS1_Data_IE(1 downto 0) /= "00" then
                   ls_except_data              <= LOAD_MISALIGNED_EXCEPT_CODE;
@@ -414,7 +493,8 @@ begin
               if decoded_instruction_LS(KMEMSTR_bit_position) = '1' then
                 overflow_rs1_sc <= add_out(Addr_Width downto 0); -- If loading data from SC overflows it's address space
                 -- Illegal byte transfer handler, and illegal writeback address handler
-                if rs1_to_sc = "100" then                              --  Not a scratchpad source address
+                if unsigned(rs1_to_sc) = SPM_NUM then --  Not a scratchpad source address
+--                if rs1_to_sc = "100" then                              --  Not a scratchpad source address
                   ls_except_data              <= ILLEGAL_ADDRESS_EXCEPT_CODE;
                 elsif RD_Data_IE(1 downto 0) /= "00" then
                   ls_except_data              <= STORE_MISALIGNED_EXCEPT_CODE;
@@ -577,6 +657,9 @@ begin
     decoded_instruction_LS_voted_wire <= decoded_instruction_LS_voted;
     data_width_ID_voted_wire          <= data_width_ID_voted;
 
+
+    flush_hart_int_wire <= flush_hart_int;
+    
     if rst_ni = '0' then
       data_width_ID_voted_wire <= (others => '0');
       decoded_instruction_LS_voted_wire  <= (others => '0');
@@ -700,6 +783,7 @@ begin
             if ((data_addr_internal(1 downto 0) = "00" and data_width_ID = "10") or 
                 (data_addr_internal(0)          = '0'  and data_width_ID = "01") or
                                                                  data_width_ID = "00") then
+--              if data_addr_internal_wires(31 downto 9) /= x"0000_F" & "111" then
               data_req_o_wires       <= '1';
               data_be_internal_wires <= data_be_ID;
               data_wdata_o_wires <= RS2_Data_IE;    
@@ -714,6 +798,7 @@ begin
                   core_busy_LS_wires <= '1';
                 end if;
               end if;
+--            end if;
             else
               ls_except_condition_wires  <= '1';
               ls_taken_branch_wires      <= '1';
@@ -768,9 +853,11 @@ begin
               if decoded_instruction_LS(KMEMLD_bit_position)   = '1' or
                  decoded_instruction_LS(KBCASTLD_bit_position) = '1' then
                 -- RS2_Data_IE(Addr_Width downto 0) instead of RS2_Data_IE(Addr_Width -1 downto 0) in order to allow reading sizes = MAX_SC_SIZE and not MAX_SC_SIZE - 1 
-                if rd_to_sc = "100" then -- AAA change this to support more than 4 spms
+                if unsigned(rd_to_sc) = SPM_NUM then -- AAA change this to support more than 4 spms
+--                if rd_to_sc = "100" then -- AAA change this to support more than 4 spms
                   ls_except_condition_wires  <= '1';
                   ls_taken_branch_wires      <= '1';
+                -- AAA loading scalar values of type 8-bit and 16-bit might raise this exception as they are not always aligned 
                 elsif(RS1_Data_IE(1 downto 0) /= "00") then
                   ls_except_condition_wires  <= '1';
                   ls_taken_branch_wires      <= '1';
@@ -794,7 +881,8 @@ begin
 
               if decoded_instruction_LS(KMEMSTR_bit_position) = '1' then
                 -- RS2_Data_IE(Addr_Width downto 0) instead of RS2_Data_IE(Addr_Width -1 downto 0) in order to allow reading sizes = MAX_SC_SIZE and not MAX_SC_SIZE - 1 
-                if rs1_to_sc = "100" then
+                if unsigned(rs1_to_sc) = SPM_NUM then
+--                if rs1_to_sc = "100" then
                   ls_except_condition_wires  <= '1';
                   ls_taken_branch_wires      <= '1';
                 elsif(RD_Data_IE(1 downto 0) /= "00") then
@@ -821,7 +909,7 @@ begin
               end if;
           end if;
 
-          data_addr_internal         <= ( others => '0');
+          data_addr_internal         <= data_addr_internal_wires;
           data_wdata_o               <= ( others => '0');
           data_be_internal           <= ( others => '0');
           data_we_o                  <= '0';
@@ -850,7 +938,8 @@ begin
         if ( add_vect_bits(store_op_buf) >=1  or add_vect_bits(load_op_buf) >=1  ) and LS_is_running = '0' then --la parte amo non serve le amo non sono supportate
 
           -- when thread 0 is active, it means you are in a restore state and you have to send the LS operation
-          if ( harc_EXEC = 0 or harc_loss = 0 ) then
+--          if ( harc_EXEC = 0 or harc_loss = 0 ) then
+          if ( harc_EXEC = 0 ) then
             if restore_fault = '1' then
               restore_fault_LSU_wire <= '0';    
             end if;
@@ -1185,8 +1274,10 @@ begin
 
   -- LS is running, is active when a LS operation is performed except during a parallel execution (store superscalar operation) 
   if ( add_vect_bits(store_op_buf) >=1  or add_vect_bits(load_op_buf) >=1 ) then 
-    if ( harc_EXEC = 1 or harc_loss = 1 ) and restore_fault_PC = '0'  then --make the voting
-    elsif ( harc_EXEC = 0 or harc_loss = 0 ) then
+--    if ( harc_EXEC = 1 or harc_loss = 1 ) and restore_fault_PC = '0'  then --make the voting
+    if ( harc_EXEC = 1 ) and restore_fault_PC = '0'  then --make the voting
+--    elsif ( harc_EXEC = 0 or harc_loss = 0 ) then
+    elsif ( harc_EXEC = 0 ) then
       LS_is_running_wire <= '0';
     else
       LS_is_running_wire <= '0'; 
@@ -1207,7 +1298,7 @@ begin
         harc_LS <= ACCL_NUM-1;
       end if;
       flush_hart_int <= (others => '0');
-      harc_LOAD      <= THREAD_POOL_SIZE-1;
+--      harc_LOAD      <= THREAD_POOL_SIZE-1;
     elsif rising_edge(clk_i) then
       flush_hart_int         <= flush_hart_int_wire;
       state_LS               <= nextstate_LS;
@@ -1380,12 +1471,14 @@ begin
         decoded_instruction_LS_buf_wire(harc_EXEC)     <= decoded_instruction_LS;     
 
         -- if there are two subsequent LS operation, turn down the two control signal buffers 
-        if ( harc_EXEC = 2 or harc_loss = 2 ) then 
+--        if ( harc_EXEC = 2 or harc_loss = 2 ) then 
+        if ( harc_EXEC = 2 ) then 
              data_we_o_buf_wire(1)                  <= '0';  
              data_req_o_buf_wire(1)                 <= '0';
              data_we_o_buf_wire(0)                  <= '0';
              data_req_o_buf_wire(0)                 <= '0';
-        elsif ( harc_EXEC = 1 or harc_loss = 1 )then
+--        elsif ( harc_EXEC = 1 or harc_loss = 1 )then
+        elsif ( harc_EXEC = 1 )then
              data_we_o_buf_wire(0)                  <= '0';
              data_req_o_buf_wire(0)                 <= '0';
         end if;
@@ -1416,7 +1509,8 @@ begin
 
 
   -- since store_op and load_op signals remains high during LS operations while ls_instr_req no, they should be managed in different ways 
-  if ( harc_EXEC = 2 or harc_loss = 2 ) then 
+--  if ( harc_EXEC = 2 or harc_loss = 2 ) then 
+  if ( harc_EXEC = 2 ) then 
     store_op_buf_wire(2) <= store_op;
     store_op_buf_wire(1) <= '0';
     store_op_buf_wire(0) <= '0';
@@ -1435,7 +1529,8 @@ begin
 
     ls_instr_req_buf_wire(1) <= '0';
     ls_instr_req_buf_wire(0) <= '0';
-  elsif ( harc_EXEC = 1 or harc_loss = 1 )then
+--  elsif ( harc_EXEC = 1 or harc_loss = 1 )then
+  elsif ( harc_EXEC = 1 )then
       store_op_buf_wire(1) <= store_op;
       store_op_buf_wire(0) <= '0';
 
@@ -1447,7 +1542,8 @@ begin
       end if;
       ls_instr_req_buf_wire(0) <= '0';
 --        elsif LS_WB_wrong_EXEC = '0' and ( harc_EXEC = 0 or harc_loss = 0 ) then
-  elsif ( harc_EXEC = 0 or harc_loss = 0 ) and restore_fault_PC = '1' then
+--  elsif ( harc_EXEC = 0 or harc_loss = 0 ) and restore_fault_PC = '1' then
+  elsif ( harc_EXEC = 0 ) and restore_fault_PC = '1' then
 
     store_op_buf_wire(0) <= store_op;
     load_op_buf_wire(0) <= load_op;
@@ -1561,28 +1657,58 @@ begin
     add_op_B <= (others => '0');
 
 
+--      -- MAP input address generator -----------------------------------------------------------------------------------
+--      if load_op = '1' or add_vect_bits(load_op_buf_wire) >= 1 then  -- address building operands
+--        add_out <= add_out_load; 
+--      end if;
+--      if store_op = '1' or add_vect_bits(store_op_buf_wire) >= 1 then -- address building operands
+--        add_out <= add_out_store; 
+--      end if;
+--      if accl_en = 1 then
+--        if decoded_instruction_LS_voted(KMEMLD_bit_position)   = '1' or  -- calculates overflow spm write
+--           decoded_instruction_LS_voted(KBCASTLD_bit_position) = '1' then
+--          add_op_A <= (Addr_Width to 31 => '0') & RD_data_IE(Addr_Width -1 downto 0);
+--          add_op_B <= (Addr_Width to 31 => '0') & std_logic_vector(unsigned(RS2_data_IE(Addr_Width -1 downto 0))-1);
+--        end if;
+--        if decoded_instruction_LS_voted(KMEMSTR_bit_position) = '1' then -- calculates overflow spm read
+--          add_op_A <= (Addr_Width to 31 => '0') & RS1_data_IE(Addr_Width -1 downto 0);
+--          add_op_B <= (Addr_Width to 31 => '0') & std_logic_vector(unsigned(RS2_data_IE(Addr_Width -1 downto 0))-1);
+--        end if;
+--
+--      -- Perform the addition ---------------------------------------------------
+--      add_out <= std_logic_vector(signed(add_op_A) + signed(add_op_B));
+--
+--      end if;
+
+
       -- MAP input address generator -----------------------------------------------------------------------------------
       if load_op = '1' or add_vect_bits(load_op_buf_wire) >= 1 then  -- address building operands
-        add_out <= add_out_load; 
+        add_op_A <= RS1_data_IE;
+        add_op_B <= I_immediate(instr_word_IE);
       end if;
       if store_op = '1' or add_vect_bits(store_op_buf_wire) >= 1 then -- address building operands
-        add_out <= add_out_store; 
+        add_op_A <= RS1_data_IE;
+        add_op_B <= S_immediate(instr_word_IE);
       end if;
       if accl_en = 1 then
-        if decoded_instruction_LS_voted(KMEMLD_bit_position)   = '1' or  -- calculates overflow spm write
-           decoded_instruction_LS_voted(KBCASTLD_bit_position) = '1' then
+        if decoded_instruction_LS(KMEMLD_bit_position)   = '1' or  -- calculates overflow spm write
+           decoded_instruction_LS(KBCASTLD_bit_position) = '1' then
           add_op_A <= (Addr_Width to 31 => '0') & RD_data_IE(Addr_Width -1 downto 0);
           add_op_B <= (Addr_Width to 31 => '0') & std_logic_vector(unsigned(RS2_data_IE(Addr_Width -1 downto 0))-1);
         end if;
-        if decoded_instruction_LS_voted(KMEMSTR_bit_position) = '1' then -- calculates overflow spm read
+        if decoded_instruction_LS(KMEMSTR_bit_position) = '1' then -- calculates overflow spm read
           add_op_A <= (Addr_Width to 31 => '0') & RS1_data_IE(Addr_Width -1 downto 0);
           add_op_B <= (Addr_Width to 31 => '0') & std_logic_vector(unsigned(RS2_data_IE(Addr_Width -1 downto 0))-1);
         end if;
-
-      -- Perform the addition ---------------------------------------------------
-      add_out <= std_logic_vector(signed(add_op_A) + signed(add_op_B));
-
       end if;
+--    end if;
+     -- Perform the addition ---------------------------------------------------
+    add_out <= std_logic_vector(signed(add_op_A) + signed(add_op_B));
+
+
+
+
+
 
     ---------------------------------------------------------------------------
   end process;

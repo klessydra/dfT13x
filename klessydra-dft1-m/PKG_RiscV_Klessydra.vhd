@@ -22,13 +22,13 @@ package riscv_klessydra is
  -- constant RF_CEIL : natural := integer(ceil(log2(real(RF_SIZE))));
 
   -- instruction trace file
-  file file_handler : text open write_mode is "execution_trace.txt";
+  --file file_handler0 : text open write_mode is "execution_0.txt";
 
-  file file_handler0 : text open write_mode is "execution_0.txt";
+  --file file_handler1 : text open write_mode is "execution_1.txt";
 
-  file file_handler1 : text open write_mode is "execution_1.txt";
+  --file file_handler2 : text open write_mode is "execution_2.txt";
 
-  file file_handler2 : text open write_mode is "execution_2.txt";
+  --file file_handler3 : text open write_mode is "execution_3.txt";
 
 ------------------------------------------------------------------------------------------------------------
 --   ██████╗██╗   ██╗███████╗████████╗ ██████╗ ███╗   ███╗    ████████╗██╗   ██╗██████╗ ███████╗███████╗  --
@@ -284,7 +284,7 @@ package riscv_klessydra is
   constant MESTATUS_addr      : std_logic_vector (11 downto 0) := x"7B8";
   constant MCPUID_addr        : std_logic_vector (11 downto 0) := x"F00";
   constant MIMPID_addr        : std_logic_vector (11 downto 0) := x"F01";
-  constant MHARTID_addr       : std_logic_vector (11 downto 0) := x"F10";
+  constant MHARTID_addr       : std_logic_vector (11 downto 0) := x"F14"; --F10 old
   constant BADADDR_addr       : std_logic_vector (11 downto 0) := x"343";
   constant MIRQ_addr          : std_logic_vector (11 downto 0) := x"FC0";
   --Performance Counters CSR addresses
@@ -351,10 +351,13 @@ package riscv_klessydra is
   constant MHPMEVENT30_addr   : std_logic_vector (11 downto 0) := x"33E";
   constant MHPMEVENT31_addr   : std_logic_vector (11 downto 0) := x"33F";
   -- Custom Klessydra CSR addresses
-  constant MPSCLFAC_addr      : std_logic_vector (11 downto 0) := x"BE0";
-  constant MVSIZE_addr        : std_logic_vector (11 downto 0) := x"BF0";
-  constant MVTYPE_addr        : std_logic_vector (11 downto 0) := x"BF8";
+  constant MPSCLFAC_addr      : std_logic_vector (11 downto 0) := x"BE0";  -- custom CSR registers
+  constant MVSIZE_addr        : std_logic_vector (11 downto 0) := x"BF0";  -- custom CSR registers
+  constant MVTYPE_addr        : std_logic_vector (11 downto 0) := x"BF8";  -- custom CSR registers
 
+
+  constant MBHARTID_addr      : std_logic_vector (11 downto 0) := x"FC4";  -- custom CSR registers
+  constant MPIP_addr          : std_logic_vector (11 downto 0) := x"FC8";  -- custom CSR registers
 
   -- reset values of CSR Registers
   constant MTVEC_RESET_VALUE    : std_logic_vector(31 downto 0)          := x"00000094";
@@ -552,6 +555,7 @@ package riscv_klessydra is
   constant READ_SAME_SCARTCHPAD_EXCEPT_CODE  : std_logic_vector(31 downto 0) := x"00000103"; -- Custom codes
   constant WRITE_SAME_SCARTCHPAD_EXCEPT_CODE : std_logic_vector(31 downto 0) := x"00000104"; -- Custom codes
 
+  constant CTX_SWITCH_CODE                   : std_logic_vector(31 downto 0) := x"00000110"; -- Custom codes
 
 ----------------------------------------------------------------------------------
 --  ███████╗██╗   ██╗███╗   ██╗ ██████╗████████╗██╗ ██████╗ ███╗   ██╗███████╗  --

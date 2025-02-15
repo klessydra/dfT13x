@@ -9,6 +9,8 @@
 --  i.e. branch instructions are not interruptible. This can be changed but may be unsafe.                  --
 --  Implements as many PC units as the  number of harts supported                                           --
 --  This entity also implements the hardware context counters that interleve the harts in the core.         --
+--  Contributors to the Klessydra Project: Abdallah Cheikh, Marcello Barbirotta, Mauro Olivieri.            --
+--  last update: 11-07-2024                                                                                 --
 --------------------------------------------------------------------------------------------------------------
 
 
@@ -24,7 +26,9 @@ use work.riscv_klessydra.all;
 
 entity Program_Counter is
   generic (
+    THREAD_POOL_SIZE_GLOBAL           : natural;
     THREAD_POOL_SIZE                  : natural;
+    HET_CLUSTER_S1_CORE               : natural;
     ACCL_NUM                          : natural;
     morph_en                          : natural
   );
@@ -67,7 +71,11 @@ entity Program_Counter is
     irq_pending                       : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     harc_sleep_wire                   : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     harc_sleep                        : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    wfi_hart_wire                     : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    wfi_hart                          : out std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
+    ext_sw_irq_het_core               : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     CORE_STATE                        : in  std_logic_vector(THREAD_POOL_BASELINE downto 0);
+    CORE_INACTIVE                     : in  std_logic;
     halt_update                       : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     PC_offset_ID                      : in  std_logic_vector(31 downto 0);
     set_branch_condition_ID           : in  std_logic;
@@ -80,6 +88,7 @@ entity Program_Counter is
     clk_i                             : in  std_logic;
     rst_ni                            : in  std_logic;
     irq_i                             : in  std_logic;
+    source_hartid_i                   : in  natural range THREAD_POOL_SIZE_GLOBAL-1 downto 0; -- used to overwrite the mhartID of the core doing the context switch
     fetch_enable_i                    : in  std_logic;
     boot_addr_i                       : in  std_logic_vector(31 downto 0);
     instr_gnt_i                       : in  std_logic;
@@ -119,6 +128,7 @@ architecture PC of Program_counter is
   subtype harc_range is natural range THREAD_POOL_SIZE-1 downto 0;
   subtype accl_range is integer range ACCL_NUM-1 downto 0;
 
+--  signal reset_state                           : std_logic_vector(harc_range);
   signal reset_state                           : std_logic;
 
   -- dTMR sygnals
@@ -152,6 +162,7 @@ architecture PC of Program_counter is
   signal harc_IF_internal_wire                 : harc_range;
   signal mret_condition_pending_internal       : std_logic_vector(harc_range);
   signal incremented_pc_internal               : array_2D(harc_range)(31 downto 0);
+  signal trap_addr                             : array_2D(harc_range)(31 downto 0);
   signal mepc_addr_internal                    : array_2D(harc_range)(31 downto 0);
   signal taken_branch_addr_internal            : array_2D(harc_range)(31 downto 0);
   signal taken_branch_pc_pending_internal      : array_2D(harc_range)(31 downto 0);
@@ -192,7 +203,7 @@ architecture PC of Program_counter is
     signal set_wfi_condition             : in    std_logic;
     signal taken_branch_pending          : inout std_logic;
     signal taken_branch_pending_lat      : in    std_logic;
---    signal irq_pending                   : in    std_logic;
+    signal irq_pending                   : in    std_logic;
     signal ie_except_condition           : in    std_logic;
     signal ls_except_condition           : in    std_logic;
     signal dsp_except_condition          : in    std_logic;
@@ -383,12 +394,16 @@ begin
   sleep_logic_dis : if morph_en = 0 generate
 
     context_switch_halt <= (others => '0');
+    harc_sleep_wire     <= (others => '0');
+    harc_sleep          <= (others => '0');
 
     hardware_context_counter : process(all)
     begin
       if rst_ni = '0' then
         harc_IF_internal <= THREAD_POOL_SIZE-1;
+        wfi_hart       <= (others => '0');
       elsif rising_edge(clk_i) then
+        wfi_hart       <= wfi_hart_wire;
         if instr_gnt_i = '1' then
           if harc_IF_internal > 0 then
             harc_IF_internal <= harc_IF_internal-1;
@@ -398,6 +413,22 @@ begin
         end if;
       end if;
     end process hardware_context_counter;
+
+    process(all)
+    begin
+      wfi_hart_wire <= wfi_hart;
+      if set_wfi_condition = '1' then
+        wfi_hart_wire(harc_EXEC) <= '1';
+      end if;
+      for i in harc_range loop
+        if (MIP(i)(11) or MIP(i)(7)) = '1' then
+          wfi_hart_wire(0) <= '0';  -- Wake up hart 0 external or timer ints
+        end if;
+        if MIP(i)(3) = '1' then
+          wfi_hart_wire(i) <= '0';  -- Wake up hart i with sw ints
+        end if;
+      end loop;
+    end process;
 
     pc_IF <= pc(harc_IF_internal);
 
@@ -411,6 +442,7 @@ begin
 
     incremented_pc_internal(h) <= std_logic_vector(unsigned(pc(h))+4);
 
+--    irq_pending_internal(h)    <= ((MIP(h)(11) or MIP(h)(7) or MIP(h)(3)) and MSTATUS(h)(0)); -- prevents servicing interrupts during trap routines
     irq_pending_internal(h)    <= '0' when rst_ni = '0' else ((MIP(h)(11) or MIP(h)(7) or MIP(h)(3)) and MSTATUS(h)(0)); -- prevents servicing interrupts during trap routines
 
     taken_branch_replicated(h) <=         '1' when dsp_taken_branch /= (accl_range => '0') and (harc_EXEC = h)
@@ -472,6 +504,7 @@ begin
     pc_update_sync : process (clk_i, rst_ni)
     begin
       if rst_ni = '0' then 
+--        reset_state                          <= (others => '1');
         pc(h)                                <= (31 downto 8 => '0' ) & std_logic_vector( to_unsigned(128,8));
 --        irq_pending_internal(h)              <= '0';
         taken_branch_pending_internal_lat(h) <= '0';
@@ -481,10 +514,19 @@ begin
         served_except_condition_lat(h)       <= '0';
         served_mret_condition_lat(h)         <= '0';
         reset_state                          <= '1';
+
+        -- The S1 core in the hetergeneous cluster does not have a reset state and takes only the state of the hart that is doing the context switch
+        if HET_CLUSTER_S1_CORE = 1 then -- since at reset we start execution with the T13 core
+          pc(h) <= (31 downto 8 => '0') & std_logic_vector(to_unsigned(160,8)); -- Put address 0x0000_00A0 which is the pointer to the context load instruction
+        else
+          pc(h) <= (31 downto 8 => '0') & std_logic_vector(to_unsigned(128,8)); -- Put address 0x0000_0080 which is the pointer to the reset handler
+        end if;
+
       elsif rising_edge(clk_i) then
         if fetch_enable_i then
           reset_state <= '0';
-        end if;
+--          reset_state(harc_IF_internal) <= '0';
+       end if;
         pc(h)                                   <= pc_wire(h);
         taken_branch_pc_pending_internal_lat(h) <= taken_branch_pc_pending_internal(h);
         taken_branch_pending_internal_lat(h)    <= taken_branch_pending_internal(h);
@@ -515,6 +557,12 @@ begin
       served_mret_condition(h)            <= served_mret_condition_lat(h);
 
       if (not reset_state) then
+
+--      if ext_sw_irq_het_core(h) = '1' then
+--        pc_wire(h) <= (31 downto 8 => '0') & std_logic_vector(to_unsigned(160,8)); -- Put address 0x0000_00A0 which is the pointer to the context load instruction
+--      else
+--        if (reset_state(h) = '0') then
+
         pc_update(
           h,
           restore_fault_PC,
@@ -531,7 +579,7 @@ begin
           set_wfi_condition,
           taken_branch_pending_internal(h), 
           taken_branch_pending_internal_lat(h),
---          irq_pending_internal(h),
+          irq_pending_internal(h),
           ie_except_condition_replicated(h),
           ls_except_condition_replicated(h), 
           dsp_except_condition_replicated(h),
@@ -549,6 +597,7 @@ begin
           served_except_condition(h), 
           served_mret_condition(h)
         );
+--      end if;
       end if;
     end process;
 
@@ -580,6 +629,11 @@ begin
     end if;
   end process;
 
+
+restore_fault <= '1' when ( harc_IF = 2 and harc_ID = 1 and harc_EXEC = 0 )  else '0';
+pc_correct    <= pc(0);
+edge_fault    <= '1' when (restore_fault_PC_wire = '1' and restore_fault_PC = '1') and harc_sleep_wire = "000" and harc_sleep /= "000" else '0';
+restore_stall <= '1' when (restore_fault_PC_wire = '1' and restore_fault_PC = '0' ) and harc_sleep_wire = "000" and harc_sleep /= "000" else '0';
 
 
   dTMR_PC_COMB : process(all)  -- the combinational voting for dTMR
@@ -613,10 +667,6 @@ begin
 
    end process;
 
-pc_correct    <= pc(0);
-edge_fault    <= '1' when (restore_fault_PC_wire = '1' and restore_fault_PC = '1') and harc_sleep_wire = "000" and harc_sleep /= "000" else '0';
-restore_fault <= '1' when ( harc_IF = 2 and harc_ID = 1 and harc_EXEC = 0 )  else '0';
-restore_stall <= '1' when (restore_fault_PC_wire = '1' and restore_fault_PC = '0' ) and harc_sleep_wire = "000" and harc_sleep /= "000" else '0';
 
 --------------------------------------------------------------------- end of PC Managing Units ---
 --------------------------------------------------------------------------------------------------  
