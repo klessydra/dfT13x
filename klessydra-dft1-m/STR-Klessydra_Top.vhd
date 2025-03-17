@@ -41,7 +41,7 @@ use work.riscv_klessydra.all;
 ----------------------------------------------------------------------------------------------------------------------------------
 
 -- core entity declaration --
-entity klessydra_top is
+entity klessydra_top_dft13  is
   generic (
     THREAD_POOL_SIZE        : natural := 3;   -- Changing the TPS to less than "number of pipeline stages-1" is not allowed. And making it bigger than "pipeline stages-1" is okay but not recommended
     THREAD_POOL_SIZE_GLOBAL : natural := THREAD_POOL_SIZE+1;   -- Indicates the total number of harts on the chip, and not only the ones in the cores
@@ -132,9 +132,9 @@ entity klessydra_top is
     sw_irq_served_i     : in  std_logic_vector(THREAD_POOL_SIZE-1 downto 0);
     sw_irq_served_o     : out std_logic_vector(THREAD_POOL_SIZE_GLOBAL-1 downto 0)
     );
-end entity klessydra_top;
+end entity klessydra_top_dft13 ;
 
-architecture Klessydra of klessydra_top is
+architecture Klessydra of klessydra_top_dft13  is
 
   constant TPS_CEIL            : natural := integer(ceil(log2(real(THREAD_POOL_SIZE))));
   constant TPS_BUF_CEIL        : natural := integer(ceil(log2(real(THREAD_POOL_SIZE)))); -- AAA equal as the signal aboe remove it 
